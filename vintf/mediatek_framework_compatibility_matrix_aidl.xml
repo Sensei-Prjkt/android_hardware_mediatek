@@ -111,6 +111,13 @@
         </interface>
     </hal>
     <hal format="aidl">
+        <name>android.se.omapi</name>
+        <interface>
+            <name>ISecureElementService</name>
+            <instance>default</instance>
+        </interface>
+    </hal>
+    <hal format="aidl">
         <name>arm.mali.platform</name>
         <version>1-2</version>
         <interface>
