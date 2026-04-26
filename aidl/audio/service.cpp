@@ -6,6 +6,7 @@
 #define LOG_TAG "mtkaudiohalservice"
 
 #include <signal.h>
+#include <utility>
 #include <string>
 #include <vector>
 
@@ -13,6 +14,7 @@
 #include <android/binder_process.h>
 #include <android-base/logging.h>
 #include <binder/ProcessState.h>
+#include <utils/Errors.h>
 #include <cutils/properties.h>
 #include <dlfcn.h>
 #include <hidl/HidlTransportSupport.h>
@@ -48,7 +50,6 @@ template <class Iter>
 static bool registerMandatoryPassthroughServiceImplementations(Iter first, Iter last) {
     bool ret = false;
     for (; first != last; ++first) {
-        const std::string& interfaceName = *first;
         ret |= (registerPassthroughServiceImplementation(*first) == OK);
     }
     return ret;
@@ -58,7 +59,8 @@ static bool registerExternalServiceImplementation(const std::string& libName,
                                                   const std::string& funcName) {
     constexpr int dlMode = RTLD_LAZY;
     void* handle = nullptr;
-    dlerror();  // clear
+
+    dlerror(); // clear previous error
     auto libPath = libName + ".so";
     handle = dlopen(libPath.c_str(), dlMode);
     if (handle == nullptr) {
@@ -67,15 +69,18 @@ static bool registerExternalServiceImplementation(const std::string& libName,
               error != nullptr ? error : "unknown error");
         return false;
     }
+
     binder_status_t (*factoryFunction)();
     *(void**)(&factoryFunction) = dlsym(handle, funcName.c_str());
     if (!factoryFunction) {
         const char* error = dlerror();
-        ALOGE("Factory function %s not found in libName %s: %s", funcName.c_str(), libPath.c_str(),
+        ALOGE("Factory function %s not found in libName %s: %s",
+              funcName.c_str(), libPath.c_str(),
               error != nullptr ? error : "unknown error");
         dlclose(handle);
         return false;
     }
+
     return ((*factoryFunction)() == STATUS_OK);
 }
 
@@ -97,9 +102,9 @@ int main(int /* argc */, char* /* argv */[]) {
         ALOGD("Configuring hwbinder with mmap size %d KBytes", value);
         ProcessState::initWithMmapSize(static_cast<size_t>(value) * 1024);
     }
+
     configureRpcThreadpool(16, true /*callerWillJoin*/);
 
-    // Automatic formatting tries to compact the lines, making them less readable
     // clang-format off
     const std::vector<InterfacesList> mandatoryInterfaces = {
         {
@@ -109,14 +114,14 @@ int main(int /* argc */, char* /* argv */[]) {
         {
             "Audio Effect API",
             "android.hardware.audio.effect@7.0::IEffectsFactory",
-        }
+        },
     };
 
-    const std::vector<std::pair<std::string,std::string>> optionalInterfaceSharedLibs = {
+    const std::vector<std::pair<std::string, std::string>> optionalInterfaceSharedLibs = {
         {
             "android.hardware.bluetooth.audio-impl-mediatek",
             "createIBluetoothAudioProviderFactory",
-        }
+        },
     };
     // clang-format on
 
@@ -138,13 +143,16 @@ int main(int /* argc */, char* /* argv */[]) {
         }
     }
 
+    // Register stub SoundTriggerHw
     std::shared_ptr<SoundTriggerHw> mtkSoundTriggerHw = ndk::SharedRefBase::make<SoundTriggerHw>();
     const std::string soundTriggerHw_instance =
             std::string() + SoundTriggerHw::descriptor + "/default";
-    binder_status_t soundTriggerHw_status = AServiceManager_addService(
-            mtkSoundTriggerHw->asBinder().get(), soundTriggerHw_instance.c_str());
+    binder_status_t soundTriggerHw_status =
+            AServiceManager_addService(mtkSoundTriggerHw->asBinder().get(),
+                                       soundTriggerHw_instance.c_str());
     CHECK_EQ(soundTriggerHw_status, STATUS_OK);
 
+    // Register Mediatek AIDL audio service
     std::shared_ptr<MtkAudio> mtkAudio = ndk::SharedRefBase::make<MtkAudio>();
     const std::string instance = std::string() + MtkAudio::descriptor + "/default";
     binder_status_t mtkAudio_status =
@@ -152,4 +160,5 @@ int main(int /* argc */, char* /* argv */[]) {
     CHECK_EQ(mtkAudio_status, STATUS_OK);
 
     joinRpcThreadpool();
+    return EXIT_FAILURE; // should not reach here
 }

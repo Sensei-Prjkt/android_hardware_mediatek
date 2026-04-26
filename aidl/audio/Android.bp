@@ -10,7 +10,11 @@ cc_binary {
     relative_install_path: "hw",
     vendor: true,
 
-    srcs: ["service.cpp"],
+    srcs: [
+        "service.cpp",
+        "SoundTriggerHw.cpp",
+        "MtkAudio.cpp",
+    ],
 
     cflags: [
         "-Wall",
@@ -19,6 +23,7 @@ cc_binary {
     ],
 
     shared_libs: [
+        "libbase",
         "libcutils",
         "libbinder",
         "libbinder_ndk",
